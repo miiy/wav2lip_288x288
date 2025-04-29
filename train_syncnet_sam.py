@@ -24,9 +24,12 @@ from hparams import hparams, get_image_list
 import torch.multiprocessing as mp
 import torch.distributed as dist
 from pytorch_lightning.loggers import CSVLogger
+import traceback
 
 
 parser = argparse.ArgumentParser(description='Code to train the expert lip-sync discriminator')
+
+parser.add_argument("--data_root", help="Root folder of the preprocessed dataset", required=True)
 
 parser.add_argument('--checkpoint_dir', help='Save checkpoints to this directory', required=False,default="checkpoints/syncnet/",type=str)
 parser.add_argument('--exp_num', help='ID number of the experiment', required=False, default="actor", type=str)
@@ -44,7 +47,8 @@ print('use_cuda: {}'.format(use_cuda))
 syncnet_T = 5
 syncnet_mel_step_size = 16
 format_video = 'mov'
-hparams.set_hparam("img_size", 384)
+# hparams.set_hparam("img_size", 384)
+hparams.set_hparam("img_size", 288)
 
 # mel augmentation
 def mask_mel(crop_mel):
@@ -71,7 +75,13 @@ def get_audio_length(audio_path):
 
 class Dataset(object):
     def __init__(self, file_list):
-        self.all_videos = get_image_list(file_list)
+        # self.all_videos = get_image_list(file_list)
+        video_list = []
+        for line in get_image_list(file_list):
+            line = os.path.join(args.data_root, line)
+            video_list.append(line)
+
+        self.all_videos = video_list
     def get_frame_id(self, frame):
         return int(basename(frame).split('.')[0])
 
@@ -80,7 +90,8 @@ class Dataset(object):
         vidname = dirname(start_frame)
         window_fnames = []
         for frame_id in range(start_id, start_id + syncnet_T):
-            frame = join(vidname, f'{frame_id:05}.jpg')
+            # frame = join(vidname, f'{frame_id:05}.jpg')
+            frame = join(vidname, f'{frame_id}.jpg')
             if not isfile(frame):
                 return None
             window_fnames.append(frame)
@@ -161,7 +172,8 @@ class Dataset(object):
                     with open(mel_out_path, "rb") as f:
                         orig_mel = np.load(f)
                 else:
-                    wavpath = os.path.join(vidname, "synced.wav")
+                    # wavpath = os.path.join(vidname, "synced.wav")
+                    wavpath = os.path.join(vidname, "audio.wav")
                     wav = audio.load_wav(wavpath, hparams.sample_rate)
 
                     orig_mel = audio.melspectrogram(wav).T  # 0.2 -> 0.9s
@@ -169,6 +181,7 @@ class Dataset(object):
                         np.save(f, orig_mel)
             except Exception as e:
                 # print("mel", vidname)
+                traceback.print_exc()
                 continue
 
             mel = self.crop_audio_window(orig_mel.copy(), img_name)
